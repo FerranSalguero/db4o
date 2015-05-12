@@ -1,0 +1,154 @@
+/* This file is part of the db4o object database http://www.db4o.com
+
+Copyright (C) 2004 - 2011  Versant Corporation http://www.versant.com
+
+db4o is free software; you can redistribute it and/or modify it under
+the terms of version 3 of the GNU General Public License as published
+by the Free Software Foundation.
+
+db4o is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program.  If not, see http://www.gnu.org/licenses/. */
+
+using System;
+using Db4objects.Db4o.Ext;
+using Db4oUnit;
+using Db4oUnit.Extensions.Fixtures;
+
+namespace Db4objects.Db4o.Tests.Common.TA.Nonta
+{
+    public class NonTARefreshTestCase : TransparentActivationTestCaseBase, IOptOutSolo
+    {
+        private const int ItemDepth = 10;
+        private Type _class;
+
+        public static void Main(string[] args)
+        {
+            new NonTARefreshTestCase().RunNetworking();
+        }
+
+        /// <exception cref="System.Exception"></exception>
+        protected override void Store()
+        {
+            var item = TAItem.NewTAItem(ItemDepth
+                );
+            item._isRoot = true;
+            _class = item.GetType();
+            Store(item);
+        }
+
+        public virtual void TestRefresh()
+        {
+            var client1 = OpenNewSession();
+            var client2 = OpenNewSession();
+            var item1 = (TAItem) RetrieveInstance
+                (client1);
+            var item2 = (TAItem) RetrieveInstance
+                (client2);
+            AssertDescendingRange(10, item1);
+            AssertDescendingRange(10, item2);
+            item1.Value(100);
+            item1.Next().Value(200);
+            client1.Store(item1, 2);
+            client1.Commit();
+            Assert.AreEqual(100, item1.Value());
+            Assert.AreEqual(200, item1.Next().Value());
+            Assert.AreEqual(10, item2.Value());
+            Assert.AreEqual(9, item2.Next().Value());
+            //refresh 0
+            client2.Refresh(item2, 0);
+            Assert.AreEqual(10, item2.Value());
+            Assert.AreEqual(9, item2.Next().Value());
+            //refresh 1
+            client2.Refresh(item2, 1);
+            Assert.AreEqual(100, item2.Value());
+            Assert.AreEqual(9, item2.Next().Value());
+            //refresh 2
+            client2.Refresh(item2, 2);
+            Assert.AreEqual(100, item2.Value());
+            Assert.AreEqual(200, item2.Next().Value());
+            UpdateAscendingWithRange(item1, 1000);
+            client1.Store(item1, 5);
+            client1.Commit();
+            client2.Refresh(item2, 5);
+            var next2 = item2;
+            for (var i = 1000; i < 1005; i++)
+            {
+                Assert.AreEqual(i, next2.Value());
+                next2 = next2.Next();
+            }
+            client1.Close();
+            client2.Close();
+        }
+
+        private void UpdateAscendingWithRange(TAItem item, int startingValue
+            )
+        {
+            var current = item;
+            while (current != null)
+            {
+                current.Value(startingValue);
+                current = current.Next();
+                startingValue++;
+            }
+        }
+
+        private void AssertDescendingRange(int startingValue, TAItem
+            item)
+        {
+            var current = item;
+            while (current != null)
+            {
+                Assert.AreEqual(startingValue, current.Value());
+                current = current.Next();
+                startingValue--;
+            }
+        }
+
+        private object RetrieveInstance(IExtObjectContainer client)
+        {
+            var query = client.Query();
+            query.Constrain(_class);
+            query.Descend("_isRoot").Constrain(true);
+            return query.Execute().Next();
+        }
+
+        public class TAItem
+        {
+            public bool _isRoot;
+            public TAItem _next;
+            public int _value;
+
+            public static TAItem NewTAItem(int depth)
+            {
+                if (depth == 0)
+                {
+                    return null;
+                }
+                var root = new TAItem();
+                root._value = depth;
+                root._next = NewTAItem(depth - 1);
+                return root;
+            }
+
+            public virtual int Value()
+            {
+                return _value;
+            }
+
+            public virtual void Value(int value)
+            {
+                _value = value;
+            }
+
+            public virtual TAItem Next()
+            {
+                return _next;
+            }
+        }
+    }
+}

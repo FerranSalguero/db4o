@@ -1,0 +1,93 @@
+/* This file is part of the db4o object database http://www.db4o.com
+
+Copyright (C) 2004 - 2011  Versant Corporation http://www.versant.com
+
+db4o is free software; you can redistribute it and/or modify it under
+the terms of version 3 of the GNU General Public License as published
+by the Free Software Foundation.
+
+db4o is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program.  If not, see http://www.gnu.org/licenses/. */
+
+using Db4objects.Db4o.Internal.Handlers;
+using Db4oUnit;
+
+namespace Db4objects.Db4o.Tests.Common.Handlers
+{
+    public class BooleanHandlerTestCase : TypeHandlerTestCaseBase
+    {
+        public static void Main(string[] arguments)
+        {
+            new BooleanHandlerTestCase().RunSolo();
+        }
+
+        private BooleanHandler BooleanHandler()
+        {
+            return new BooleanHandler();
+        }
+
+        public virtual void TestReadWriteTrue()
+        {
+            DoTestReadWrite(true);
+        }
+
+        public virtual void TestReadWriteFalse()
+        {
+            DoTestReadWrite(false);
+        }
+
+        public virtual void DoTestReadWrite(bool b)
+        {
+            var writeContext = new MockWriteContext(Db());
+            BooleanHandler().Write(writeContext, b);
+            var readContext = new MockReadContext(writeContext);
+            var res = (bool) BooleanHandler().Read(readContext);
+            Assert.AreEqual(b, res);
+        }
+
+        /// <exception cref="System.Exception"></exception>
+        public virtual void TestStoreObject()
+        {
+            var storedItem = new Item(false, true
+                );
+            DoTestStoreObject(storedItem);
+        }
+
+        public class Item
+        {
+            public bool _bool;
+            public bool _boolWrapper;
+
+            public Item(bool boolWrapper, bool @bool)
+            {
+                _boolWrapper = boolWrapper;
+                _bool = @bool;
+            }
+
+            public override bool Equals(object obj)
+            {
+                if (obj == this)
+                {
+                    return true;
+                }
+                if (!(obj is Item))
+                {
+                    return false;
+                }
+                var other = (Item) obj;
+                return (other._bool == _bool) && _boolWrapper.Equals(other._boolWrapper
+                    );
+            }
+
+            public override string ToString()
+            {
+                return "[" + _bool + "," + _boolWrapper + "]";
+            }
+        }
+    }
+}

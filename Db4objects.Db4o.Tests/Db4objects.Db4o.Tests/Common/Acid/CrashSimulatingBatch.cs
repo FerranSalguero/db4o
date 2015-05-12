@@ -1,0 +1,115 @@
+/* This file is part of the db4o object database http://www.db4o.com
+
+Copyright (C) 2004 - 2011  Versant Corporation http://www.versant.com
+
+db4o is free software; you can redistribute it and/or modify it under
+the terms of version 3 of the GNU General Public License as published
+by the Free Software Foundation.
+
+db4o is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program.  If not, see http://www.gnu.org/licenses/. */
+
+using System.IO;
+using Db4objects.Db4o.Foundation;
+using Db4objects.Db4o.Foundation.IO;
+using Db4objects.Db4o.Internal.Transactionlog;
+using Sharpen;
+using Sharpen.IO;
+using File = System.IO.File;
+
+namespace Db4objects.Db4o.Tests.Common.Acid
+{
+    public class CrashSimulatingBatch
+    {
+        private readonly Collection4 _writes = new Collection4();
+        private int _counter;
+        private Collection4 _currentWrite = new Collection4();
+
+        public virtual void Add(string path, byte[] bytes, long offset, int length)
+        {
+            byte[] lockFileBuffer = null;
+            byte[] logFileBuffer = null;
+            if (File.Exists(FileBasedTransactionLogHandler.LockFileName(path)))
+            {
+                try
+                {
+                    lockFileBuffer = ReadAllBytes(FileBasedTransactionLogHandler.LockFileName(path));
+                    logFileBuffer = ReadAllBytes(FileBasedTransactionLogHandler.LogFileName(path));
+                }
+                catch (IOException e)
+                {
+                    Runtime.PrintStackTrace(e);
+                }
+            }
+            var crashSimulatingWrite = new CrashSimulatingWrite(_counter++,
+                bytes, offset, length, lockFileBuffer, logFileBuffer);
+            _currentWrite.Add(crashSimulatingWrite);
+        }
+
+        /// <exception cref="System.IO.IOException"></exception>
+        private byte[] ReadAllBytes(string fileName)
+        {
+            var length = (int) new Sharpen.IO.File(fileName).Length();
+            var raf = new RandomAccessFile(fileName, "rw");
+            var buffer = new byte[length];
+            raf.Read(buffer);
+            raf.Close();
+            return buffer;
+        }
+
+        public virtual void Sync()
+        {
+            _writes.Add(_currentWrite);
+            _currentWrite = new Collection4();
+        }
+
+        public virtual int NumSyncs()
+        {
+            return _writes.Size();
+        }
+
+        /// <exception cref="System.IO.IOException"></exception>
+        public virtual int WriteVersions(string file, bool writeTrash)
+        {
+            var count = 0;
+            var rcount = 0;
+            var lastFileName = file + "0";
+            var rightFileName = file + "R";
+            File4.Copy(lastFileName, rightFileName);
+            var syncIter = _writes.GetEnumerator();
+            while (syncIter.MoveNext())
+            {
+                rcount++;
+                var writesBetweenSync = (Collection4) syncIter.Current;
+                var rightRaf = new RandomAccessFile(rightFileName, "rw");
+                var singleForwardIter = writesBetweenSync.GetEnumerator();
+                while (singleForwardIter.MoveNext())
+                {
+                    var csw = (CrashSimulatingWrite) singleForwardIter.Current;
+                    csw.Write(rightFileName, rightRaf, false);
+                }
+                rightRaf.Close();
+                var singleBackwardIter = writesBetweenSync.GetEnumerator();
+                while (singleBackwardIter.MoveNext())
+                {
+                    count++;
+                    var csw = (CrashSimulatingWrite) singleBackwardIter.Current;
+                    var currentFileName = file + "W" + count;
+                    File4.Copy(lastFileName, currentFileName);
+                    var raf = new RandomAccessFile(currentFileName, "rw");
+                    csw.Write(currentFileName, raf, writeTrash);
+                    raf.Close();
+                    lastFileName = currentFileName;
+                }
+                File4.Copy(rightFileName, rightFileName + rcount);
+                lastFileName = rightFileName;
+            }
+            return count;
+        }
+    }
+}
